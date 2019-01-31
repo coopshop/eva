@@ -3,6 +3,7 @@ use std::fmt;
 use failure::Fail;
 use futures::future::LocalFutureObj;
 
+use crate::time_segment::NamedTimeSegment;
 use crate::{NewTask, Task};
 
 #[cfg(feature = "sqlite")]
@@ -20,6 +21,9 @@ pub trait Database {
     fn find_task<'a: 'b, 'b>(&'a self, id: u32) -> LocalFutureObj<'b, Result<Task>>;
     fn update_task<'a: 'b, 'b>(&'a self, task: Task) -> LocalFutureObj<'b, Result<()>>;
     fn all_tasks<'a: 'b, 'b>(&'a self) -> LocalFutureObj<'b, Result<Vec<Task>>>;
+    fn all_tasks_per_time_segment<'a: 'b, 'b>(
+        &'a self,
+    ) -> LocalFutureObj<'b, Result<Vec<(NamedTimeSegment, Vec<Task>)>>>;
 }
 
 impl fmt::Debug for Database {

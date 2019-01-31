@@ -10,8 +10,6 @@ extern crate diesel;
 #[macro_use]
 extern crate diesel_migrations;
 
-use std::collections::HashMap;
-
 use chrono::prelude::*;
 use chrono::Duration;
 use derive_new::new;
@@ -19,14 +17,13 @@ use failure::Fail;
 use futures::prelude::*;
 
 use crate::configuration::{Configuration, SchedulingStrategy};
-use crate::time_segment::TimeSegment;
 
-pub use crate::scheduling::{Schedule, ScheduledTask};
+pub use crate::scheduling::{Schedule, Scheduled};
 
 pub mod configuration;
 pub mod database;
 mod scheduling;
-mod time_segment;
+pub mod time_segment;
 mod util;
 
 #[derive(Debug, Fail)]
@@ -34,7 +31,7 @@ pub enum Error {
     #[fail(display = "{}", _0)]
     Database(#[cause] crate::database::Error),
     #[fail(display = "{}", _0)]
-    Schedule(#[cause] crate::scheduling::Error),
+    Schedule(#[cause] crate::scheduling::Error<Task>),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -45,6 +42,7 @@ pub struct NewTask {
     pub deadline: DateTime<Utc>,
     pub duration: Duration,
     pub importance: u32,
+    pub time_segment_id: u32,
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Hash)]
@@ -54,6 +52,7 @@ pub struct Task {
     pub deadline: DateTime<Utc>,
     pub duration: Duration,
     pub importance: u32,
+    pub time_segment_id: u32,
 }
 
 pub fn add<'a: 'b, 'b>(
@@ -105,7 +104,7 @@ pub fn all<'a: 'b, 'b>(
 pub fn schedule<'a: 'c, 'b: 'c, 'c>(
     configuration: &'a Configuration,
     strategy: &'b str,
-) -> impl Future<Output = Result<Schedule>> + 'c {
+) -> impl Future<Output = Result<Schedule<Task>>> + 'c {
     let strategy = match strategy {
         "importance" => SchedulingStrategy::Importance,
         "urgency" => SchedulingStrategy::Urgency,
@@ -117,16 +116,9 @@ pub fn schedule<'a: 'c, 'b: 'c, 'c>(
 
     configuration
         .database
-        .all_tasks()
+        .all_tasks_per_time_segment()
         .map_err(Error::Database)
-        .and_then(move |tasks| {
-            let mut tasks_per_segment = HashMap::new();
-            let anytime = TimeSegment {
-                ranges: vec![start..start + Duration::weeks(1)],
-                start,
-                period: Duration::weeks(1),
-            };
-            tasks_per_segment.insert(anytime, tasks);
+        .and_then(move |tasks_per_segment| {
             let schedule = Schedule::schedule(start, tasks_per_segment, strategy);
             future::ready(schedule).map_err(Error::Schedule)
         })
